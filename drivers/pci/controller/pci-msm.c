@@ -5437,57 +5437,9 @@ static irqreturn_t handle_wake_irq(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
-/* Attempt to recover link, return 0 if success */
-static int msm_pcie_linkdown_recovery(struct msm_pcie_dev_t *dev)
-{
-	u32 status = 0;
-	u32 cnt = 100; /* 1msec timeout */
-
-	PCIE_DUMP(dev, "PCIe:Linkdown IRQ for RC%d attempt recovery\n",
-		dev->rc_idx);
-
-	while (cnt--) {
-		status = readl_relaxed(dev->parf + PCIE20_PARF_STATUS);
-		if (status & FLUSH_COMPLETED) {
-			PCIE_DBG(dev,
-			       "flush complete (%d), status:%x\n", cnt, status);
-			break;
-		}
-		udelay(10);
-	}
-
-	if (!cnt) {
-		PCIE_DBG(dev, "flush timeout, status:%x\n", status);
-		return -ETIMEDOUT;
-	}
-
-	/* Clear flush and move core to reset mode */
-	msm_pcie_write_mask(dev->parf + PCIE20_PARF_LTSSM,
-			    0, SW_CLR_FLUSH_MODE);
-
-	/* wait for flush mode to clear */
-	cnt = 100; /* 1msec timeout */
-	while (cnt--) {
-		status = readl_relaxed(dev->parf + PCIE20_PARF_LTSSM);
-		if (!(status & FLUSH_MODE)) {
-			PCIE_DBG(dev, "flush mode clear:%d, %x\n", cnt, status);
-			break;
-		}
-
-		udelay(10);
-	}
-
-	if (!cnt) {
-		PCIE_DBG(dev, "flush-mode timeout, status:%x\n", status);
-		return -ETIMEDOUT;
-	}
-
-	return 0;
-}
-
 static void msm_pcie_handle_linkdown(struct msm_pcie_dev_t *dev)
 {
-	int i, ret;
+	int i;
 
 	if (dev->link_status == MSM_PCIE_LINK_DOWN)
 		return;
@@ -5501,14 +5453,6 @@ static void msm_pcie_handle_linkdown(struct msm_pcie_dev_t *dev)
 	pcie_phy_dump(dev);
 	pcie_parf_dump(dev);
 	pcie_dm_core_dump(dev);
-
-	/* Attempt link-down recovery instead of PERST if supported */
-	if (dev->linkdown_recovery_enable) {
-		ret = msm_pcie_linkdown_recovery(dev);
-		/* Return without PERST assertion if success */
-		if (!ret)
-			return;
-	}
 
 	/* assert PERST */
 	if (!(msm_pcie_keep_resources_on & BIT(dev->rc_idx)))
