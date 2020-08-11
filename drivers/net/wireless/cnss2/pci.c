@@ -940,17 +940,6 @@ void cnss_pci_allow_l1(struct device *dev)
 }
 EXPORT_SYMBOL(cnss_pci_allow_l1);
 
-static void cnss_pci_update_link_event(struct cnss_pci_data *pci_priv,
-				       enum cnss_bus_event_type type,
-				       void *data)
-{
-	struct cnss_bus_event bus_event;
-
-	bus_event.etype = type;
-	bus_event.event_data = data;
-	cnss_pci_call_driver_uevent(pci_priv, CNSS_BUS_EVENT, &bus_event);
-}
-
 static void cnss_pci_handle_linkdown(struct cnss_pci_data *pci_priv)
 {
 	struct cnss_plat_data *plat_priv = pci_priv->plat_priv;
@@ -972,17 +961,8 @@ static void cnss_pci_handle_linkdown(struct cnss_pci_data *pci_priv)
 
 	reinit_completion(&pci_priv->wake_event);
 
-	/* Notify MHI about link down */
-	mhi_control_error(pci_priv->mhi_ctrl);
-
 	if (pci_dev->device == QCA6174_DEVICE_ID)
 		disable_irq(pci_dev->irq);
-
-	/* Notify bus related event. Now for all supported chips.
-	 * Here PCIe LINK_DOWN notification taken care.
-	 * uevent buffer can be extended later, to cover more bus info.
-	 */
-	cnss_pci_update_link_event(pci_priv, BUS_EVENT_PCI_LINK_DOWN, NULL);
 
 	cnss_fatal_err("PCI link down, schedule recovery\n");
 	cnss_schedule_recovery(&pci_dev->dev, CNSS_REASON_LINK_DOWN);
@@ -992,24 +972,12 @@ int cnss_pci_link_down(struct device *dev)
 {
 	struct pci_dev *pci_dev = to_pci_dev(dev);
 	struct cnss_pci_data *pci_priv = cnss_get_pci_priv(pci_dev);
-	struct cnss_plat_data *plat_priv = NULL;
 	int ret;
 
 	if (!pci_priv) {
 		cnss_pr_err("pci_priv is NULL\n");
 		return -EINVAL;
 	}
-
-	plat_priv = pci_priv->plat_priv;
-	if (!plat_priv) {
-		cnss_pr_err("plat_priv is NULL\n");
-		return -ENODEV;
-	}
-
-	if (pci_priv->drv_connected_last &&
-	    of_property_read_bool(plat_priv->plat_dev->dev.of_node,
-				  "cnss-enable-self-recovery"))
-		plat_priv->ctrl_params.quirks |= BIT(LINK_DOWN_SELF_RECOVERY);
 
 	cnss_pr_err("PCI link down is detected by drivers\n");
 
@@ -2586,8 +2554,6 @@ static void cnss_pci_event_cb(struct msm_pcie_notify *notify)
 {
 	struct pci_dev *pci_dev;
 	struct cnss_pci_data *pci_priv;
-	struct cnss_plat_data *plat_priv = NULL;
-	int ret = 0;
 
 	if (!notify)
 		return;
@@ -2601,25 +2567,7 @@ static void cnss_pci_event_cb(struct msm_pcie_notify *notify)
 		return;
 
 	switch (notify->event) {
-	case MSM_PCIE_EVENT_LINK_RECOVER:
-		cnss_pr_dbg("PCI link recover callback\n");
-
-		plat_priv = pci_priv->plat_priv;
-		if (!plat_priv) {
-			cnss_pr_err("plat_priv is NULL\n");
-			return;
-		}
-
-		plat_priv->ctrl_params.quirks |= BIT(LINK_DOWN_SELF_RECOVERY);
-
-		ret = msm_pcie_pm_control(MSM_PCIE_HANDLE_LINKDOWN,
-					  pci_dev->bus->number, pci_dev, NULL,
-					  PM_OPTIONS_DEFAULT);
-		if (ret)
-			cnss_pci_handle_linkdown(pci_priv);
-		break;
 	case MSM_PCIE_EVENT_LINKDOWN:
-		cnss_pr_dbg("PCI link down event callback\n");
 		cnss_pci_handle_linkdown(pci_priv);
 		break;
 	case MSM_PCIE_EVENT_WAKEUP:
