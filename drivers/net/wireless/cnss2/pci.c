@@ -402,9 +402,8 @@ int cnss_pci_check_link_status(struct cnss_pci_data *pci_priv)
 	u16 device_id;
 
 	if (pci_priv->pci_link_state == PCI_LINK_DOWN) {
-		cnss_pr_dbg("%ps: PCIe link is in suspend state\n",
-			    (void *)_RET_IP_);
-		return -EACCES;
+		cnss_pr_dbg("%ps: PCIe link is suspended\n", (void *)_RET_IP_);
+		return -EIO;
 	}
 
 	if (pci_priv->pci_link_down_ind) {
